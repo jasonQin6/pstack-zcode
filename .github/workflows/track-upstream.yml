@@ -54,6 +54,34 @@ jobs:
           out=$(PSTACK_SESSION_HOOK=off ZCODE_PLUGIN_ROOT="$PWD" ./hooks/zcode-session-start.sh </dev/null)
           if [ -n "$out" ]; then echo "hook printed output while disabled"; exit 1; fi
 
+      - name: Verify every sheet role reaches the injected context
+        run: |
+          set -e
+          tmp=$(mktemp -d)
+          ZCODE_CONFIG_DIR="$tmp" node scripts/render-sheet.mjs
+          roles=$(grep -E '^[a-zA-Z][a-zA-Z0-9 ,-]*:[ \t]*[^ \t]' "$tmp/pstack-models.md" \
+            | grep -vcE '^(default effort|session hook):')
+          out=$(ZCODE_CONFIG_DIR="$tmp" ZCODE_PLUGIN_ROOT="$PWD" ./hooks/zcode-session-start.sh </dev/null)
+          printf '%s' "$out" | node -e '
+            let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+              const c=JSON.parse(s).hookSpecificOutput.additionalContext;
+              const want=Number(process.argv[1]);
+              const got=["feature, refactoring","swarm workers","no-comments reviewer","bug-fix",
+                         "perf-issue","hillclimb","judgment and prose","thermos reviewers",
+                         "strongest judgment","arena runners","arena cross-judge pool",
+                         "interrogate reviewers"];
+              const missing=got.filter(r=>!c.includes(r+":"));
+              if(missing.length){console.error("roles dropped from the injected context:",missing.join(", "));process.exit(1)}
+              if(got.length!==want){console.error(`sheet has ${want} role lines, the check knows ${got.length}`);process.exit(1)}
+              console.log(`all ${got.length} sheet roles reached the context`);
+            });
+          ' "$roles"
+          echo "== settings lines stay out of the context =="
+          printf '%s' "$out" | grep -q 'default effort:' && { echo "default effort leaked in"; exit 1; }
+          printf '%s' "$out" | grep -q 'session hook:' && { echo "session hook leaked in"; exit 1; }
+          echo "settings lines excluded"
+          rm -rf "$tmp"
+
       - name: Run adapter self-checks
         run: |
           set -e

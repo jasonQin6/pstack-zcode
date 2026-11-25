@@ -92,8 +92,10 @@ BEGIN {
       # "session hook" and "default effort" are settings, not role lines.
       if (line ~ /^session hook:/) continue
       if (line ~ /^default effort:/) continue
-      # A role line is "role: model[, model...][ @level]" with a known role.
-      if (line !~ /^[a-zA-Z][a-zA-Z0-9 ,]*:[ \t]*[^ \t]/) continue
+      # A role line is "role: model[, model...][ @level]". Role names hold
+      # letters, digits, spaces, commas and hyphens, so the hyphen must be in the
+      # class: bug-fix, perf-issue, no-comments reviewer all depend on it.
+      if (line !~ /^[a-zA-Z][a-zA-Z0-9 ,-]*:[ \t]*[^ \t]/) continue
       roles = roles (roles == "" ? "" : "\n") line
     }
     close(sheet)
