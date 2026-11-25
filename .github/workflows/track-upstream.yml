@@ -36,16 +36,23 @@ jobs:
       - name: Verify hook output stays valid JSON
         run: |
           chmod +x hooks/zcode-session-start.sh
-          out=$(ZCODE_PLUGIN_ROOT="$PWD" ./hooks/zcode-session-start.sh)
+          out=$(ZCODE_PLUGIN_ROOT="$PWD" ./hooks/zcode-session-start.sh </dev/null)
           printf '%s' "$out" | node -e '
             let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
               const o=JSON.parse(s);
-              if(typeof o.additionalContext!=="string"||!o.additionalContext.length){
+              const h=o.hookSpecificOutput;
+              if(!h||h.hookEventName!=="SessionStart"){
+                console.error("hookSpecificOutput.hookEventName missing");process.exit(1);
+              }
+              if(typeof h.additionalContext!=="string"||!h.additionalContext.length){
                 console.error("additionalContext missing or empty");process.exit(1);
               }
-              console.log("hook JSON ok, length", o.additionalContext.length);
+              console.log("hook JSON ok, length", h.additionalContext.length);
             });
           '
+          echo "== the hook stays silent when disabled =="
+          out=$(PSTACK_SESSION_HOOK=off ZCODE_PLUGIN_ROOT="$PWD" ./hooks/zcode-session-start.sh </dev/null)
+          if [ -n "$out" ]; then echo "hook printed output while disabled"; exit 1; fi
 
       - name: Run adapter self-checks
         run: |
@@ -59,22 +66,35 @@ jobs:
             id=$(node scripts/resolve-model.mjs "$alias")
             case "$id" in */*) ;; *) echo "alias $alias did not resolve to an ID"; exit 1 ;; esac
           done
-          echo "== the native agent matches the worker tier =="
+          echo "== poteto-agent inherits the session model =="
+          node -e '
+            const fs=require("fs");
+            const a=fs.readFileSync("agents/poteto-agent.md","utf8");
+            const fm=a.split("---")[1]??"";
+            if(/^model:/m.test(fm)||/^thoughtLevel:/m.test(fm)){
+              console.error("poteto-agent must set no model/thoughtLevel so it inherits, as upstream does");
+              process.exit(1);
+            }
+            console.log("poteto-agent inherits the parent model");
+          '
+          echo "== poteto-worker is pinned to the worker tier =="
           node -e '
             const fs=require("fs");
             const map=JSON.parse(fs.readFileSync("skills/pstack-zcode/references/model-map.json","utf8"));
             const worker=map.aliases[map.tiers.worker.model];
-            const agent=fs.readFileSync("agents/poteto-agent.md","utf8");
-            const m=agent.match(/^model:\s*"([^"]+)"/m);
-            const l=agent.match(/^thoughtLevel:\s*(\S+)/m);
-            if(!m||m[1]!==worker){console.error(`poteto-agent model ${m?m[1]:"(none)"} != worker alias ${worker}`);process.exit(1)}
-            if(!l||l[1]!==map.tiers.worker.thoughtLevel){console.error(`poteto-agent thoughtLevel ${l?l[1]:"(none)"} != ${map.tiers.worker.thoughtLevel}`);process.exit(1)}
-            console.log("poteto-agent on worker tier:", worker, l[1]);
+            const a=fs.readFileSync("agents/poteto-worker.md","utf8");
+            const m=a.match(/^model:\s*"([^"]+)"/m);
+            const l=a.match(/^thoughtLevel:\s*(\S+)/m);
+            if(!m||m[1]!==worker){console.error(`poteto-worker model ${m?m[1]:"(none)"} != ${worker}`);process.exit(1)}
+            if(!l||l[1]!==map.tiers.worker.thoughtLevel){console.error(`poteto-worker thoughtLevel != ${map.tiers.worker.thoughtLevel}`);process.exit(1)}
+            console.log("poteto-worker on worker tier:", worker, l[1]);
           '
-          echo "== no other file hardcodes a model ID =="
+          echo "== no model ID leaks outside the map and the pinned agent =="
           if grep -rln --include='*.md' -E 'account:[a-z-]+/|new-provider-2/' skills/ hooks/ 2>/dev/null | grep -v 'zcode-tools.md'; then
-            echo "a model ID leaked outside the map and the agent"; exit 1
+            echo "a model ID leaked outside the map and the pinned agent"; exit 1
           fi
+          echo "== the mandate only names skills and agents that exist =="
+          node scripts/check-anchors.mjs --offline
 
       - name: Check upstream drift
         id: drift

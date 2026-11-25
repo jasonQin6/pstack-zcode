@@ -13,7 +13,7 @@ When the intent is already specific, enter that skill directly: `pstack:tdd`, `p
 
 On ZCode, read `zcode-tools.md` from the `pstack-zcode` skill before following a pstack skill that names a Claude tool, a subagent field, or a Claude model. The two differences that bite first: the subagent reasoning field is `thoughtLevel` (not `effort`), and an `Agent` call has no `model`, `isolation`, `readonly`, or `resume` parameter.
 
-Subagent types named by pstack skills resolve in two places. `pstack:poteto-agent`, `pstack:comment-sicko`, and the two `pstack:thermo-nuclear-*` reviewers come from the pstack plugin. `pstack-zcode:poteto-agent` is the ZCode-native delegate, which resolves `poteto-mode/SKILL.md` from the installed pstack cache and carries its own model and thought level. Prefer the native one when a delegate needs a different model tier from the session.
+Subagent types named by pstack skills resolve in two places. `pstack:poteto-agent`, `pstack:comment-sicko`, `pstack:thermo-nuclear-review-subagent` and `pstack:thermo-nuclear-code-quality-review-subagent` come from the pstack plugin. `pstack-zcode:poteto-agent` and `pstack-zcode:poteto-worker` are the ZCode-native delegates: the first inherits the session's model, the second is pinned to the cheap fast tier for mechanical work. Both resolve `poteto-mode/SKILL.md` from the installed pstack cache.
 
 User instructions live in `~/.zcode/AGENTS.md` at user scope and `<repo>/AGENTS.md` at workspace scope. They take precedence. Other session-start mandates still apply; when a task meets the criteria above they route implementation through poteto-mode.
 </EXTREMELY_IMPORTANT>

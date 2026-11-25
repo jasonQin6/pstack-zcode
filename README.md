@@ -36,6 +36,15 @@ Then restart ZCode and confirm on a new task that the log shows the SessionStart
 grep 'SessionStart' ~/.zcode/cli/log/zcode-*.jsonl | tail
 ```
 
+## Agents
+
+| Agent | Model | Use for |
+|---|---|---|
+| `pstack-zcode:poteto-agent` | inherits the session's model | The default delegate. Sets no `model`, matching pstack's own `poteto-agent`, whose Subagents section says a role with no configured model runs on the parent's. |
+| `pstack-zcode:poteto-worker` | `deepseek-flash` at `medium`, the `worker` tier | Mechanical, repetitive, or already-specified work: bulk edits, sweeps, formatting passes, verification re-runs. Cheapest tier, and the payload says so. |
+
+Cost control comes from picking the agent at dispatch, not from changing the default. `poteto-agent` inheriting is deliberate: pinning it to the cheap model would silently downgrade every delegated task, including the ones that needed the session's judgment. pstack's `pstack:poteto-agent` and `pstack:thermo-nuclear-*` reviewers come from the pstack plugin itself and are unaffected.
+
 ## Model tiering
 
 pstack names roles and tiers, never models. This adapter keeps that abstraction and owns the only translation, in [`skills/pstack-zcode/references/model-map.json`](skills/pstack-zcode/references/model-map.json):
@@ -55,17 +64,17 @@ node scripts/resolve-model.mjs --role hillclimb    # alias -> real ZCode ID
 node scripts/resolve-model.mjs glm-5.4             # one alias
 ```
 
-The native agent ships on `worker` (`deepseek-flash` at `medium`), which is the cheapest tier and the right default for delegated mechanical work. To put a different tier behind it without editing the agent, override in `~/.zcode/cli/config.json`:
+`poteto-worker` ships on the `worker` tier, and `poteto-agent` deliberately sets no model. To move the worker tier without editing the agent, override in `~/.zcode/cli/config.json`:
 
 ```json
 {
   "pluginAgentModelSelectionOverrides": {
-    "pstack-zcode:poteto-agent": { "model": "new-provider-2/group/gpt-6-luna", "options": { "reasoningLevel": "high" } }
+    "pstack-zcode:poteto-worker": { "model": "new-provider-2/group/gpt-6-luna", "options": { "reasoningLevel": "high" } }
   }
 }
 ```
 
-CI fails when the rendered sheet drifts from the map, or when the agent's model no longer matches the `worker` tier.
+CI fails when the rendered sheet drifts from the map, when `poteto-agent` grows a `model` field, or when `poteto-worker` leaves the `worker` tier.
 
 ## Disabling pstack's own hook
 

@@ -2,9 +2,13 @@
 # ZCode SessionStart hook for pstack.
 #
 # ZCode parses hook stdout as a strict JSON object and drops plain text, so this
-# script emits {"additionalContext": "<mandate>"} rather than the raw Markdown
-# that pstack's own claude branch prints. Anything unexpected means emitting
-# nothing: empty stdout is a clean pass, while malformed JSON is a failed run.
+# script emits the mandate as JSON rather than the raw Markdown that pstack's own
+# claude branch prints. That difference is why pstack's hook fails on every start
+# here and why this plugin exists.
+#
+# A SessionStart hook must never make noise or block a session, so every failure
+# path below exits 0 with no output. Silence is a clean pass; a broken JSON line
+# would be a failed run.
 #
 # Environment from ZCode: ZCODE_PLUGIN_ROOT (this plugin), ZCODE_PROJECT_DIR,
 # ZCODE_SESSION_ID, plus CLAUDE_* mirrors. Missing ZCODE_PLUGIN_ROOT falls back
@@ -20,6 +24,13 @@ mandate="$ZCODE_PLUGIN_ROOT/hooks/session-start-zcode.md"
 # PSTACK_SESSION_HOOK=off disables injection for a single session.
 [ "${PSTACK_SESSION_HOOK:-}" = off ] && exit 0
 
+# Drain stdin so a caller writing a payload never blocks on a full pipe. ZCode
+# sends an event object here; this script does not need it, but reading it also
+# keeps the hook safe to run by hand with stdin left open.
+if [ ! -t 0 ]; then
+  dd bs=4096 count=64 2>/dev/null >/dev/null || true
+fi
+
 # The sheet records per-role model choices. A ZCode sheet wins when present.
 sheet=
 for candidate in \
@@ -30,12 +41,14 @@ do
 done
 
 # "session hook: off" in the sheet turns injection off, as on other runtimes.
-if [ -n "$sheet" ] && tr -d '\r' <"$sheet" | grep -qx 'session hook: off'; then
+if [ -n "$sheet" ] && tr -d '\r' <"$sheet" 2>/dev/null | grep -qx 'session hook: off'; then
   exit 0
 fi
 
-# Emit the mandate plus any usable role lines as one JSON object.
-ACCESS_MANDATE="$mandate" ACCESS_SHEET="$sheet" awk '
+# Emit the mandate plus any usable role lines. The payload uses ZCode's complete
+# hookSpecificOutput shape; a top-level additionalContext is also accepted, but
+# naming the event leaves no room for the runtime to guess which event it is for.
+output=$(ACCESS_MANDATE="$mandate" ACCESS_SHEET="$sheet" awk '
 function esc(s,    out, i, c) {
   if (!esc_ready) {
     for (i = 1; i < 32; i++) esc_ctl[sprintf("%c", i)] = 1
@@ -87,7 +100,14 @@ BEGIN {
   }
 
   text = body
-  if (roles != "") text = text "\n\nSaved pstack role choices, which override a role default when the named model resolves on this runtime:\n" roles
-  printf "{\"additionalContext\": \"%s\"}\n", esc(text)
+  if (roles != "") {
+    text = text "\n\nSaved pstack role choices. Each value is an alias from pstack-zcode references/model-map.json; resolve it with scripts/resolve-model.mjs before dispatching:\n" roles
+  }
+  printf "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"%s\"}}\n", esc(text)
 }
-' </dev/null
+' 2>/dev/null) || exit 0
+
+# Never emit a partial or empty object: a failed awk run stays silent.
+[ -n "$output" ] || exit 0
+printf '%s\n' "$output"
+exit 0
