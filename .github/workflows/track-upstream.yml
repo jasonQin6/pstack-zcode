@@ -36,7 +36,7 @@ jobs:
       - name: Verify hook output stays valid JSON
         run: |
           chmod +x hooks/zcode-session-start.sh
-          out=$(ZCODE_PLUGIN_ROOT="$PWD" ./hooks/zcode-session-start.sh </dev/null)
+          out=$(ZCODE_HOOK_FORCE=1 ZCODE_PLUGIN_ROOT="$PWD" ./hooks/zcode-session-start.sh </dev/null)
           printf '%s' "$out" | node -e '
             let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
               const o=JSON.parse(s);
@@ -51,8 +51,16 @@ jobs:
             });
           '
           echo "== the hook stays silent when disabled =="
-          out=$(PSTACK_SESSION_HOOK=off ZCODE_PLUGIN_ROOT="$PWD" ./hooks/zcode-session-start.sh </dev/null)
+          out=$(PSTACK_SESSION_HOOK=off ZCODE_SESSION_ID=s ZCODE_PLUGIN_ROOT="$PWD" ./hooks/zcode-session-start.sh </dev/null)
           if [ -n "$out" ]; then echo "hook printed output while disabled"; exit 1; fi
+
+          echo "== the hook stays silent with no live session =="
+          out=$(env -u ZCODE_SESSION_ID -u CLAUDE_SESSION_ID -u CLAUDE_CODE_SESSION_ID \
+                  ZCODE_PLUGIN_ROOT="$PWD" ./hooks/zcode-session-start.sh </dev/null)
+          if [ -n "$out" ]; then
+            echo "hook emitted output with no session id; a teardown run must stay silent"
+            exit 1
+          fi
 
       - name: Verify every sheet role reaches the injected context
         run: |
@@ -61,7 +69,7 @@ jobs:
           ZCODE_CONFIG_DIR="$tmp" node scripts/render-sheet.mjs
           roles=$(grep -E '^[a-zA-Z][a-zA-Z0-9 ,-]*:[ \t]*[^ \t]' "$tmp/pstack-models.md" \
             | grep -vcE '^(default effort|session hook):')
-          out=$(ZCODE_CONFIG_DIR="$tmp" ZCODE_PLUGIN_ROOT="$PWD" ./hooks/zcode-session-start.sh </dev/null)
+          out=$(ZCODE_CONFIG_DIR="$tmp" ZCODE_HOOK_FORCE=1 ZCODE_PLUGIN_ROOT="$PWD" ./hooks/zcode-session-start.sh </dev/null)
           printf '%s' "$out" | node -e '
             let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
               const c=JSON.parse(s).hookSpecificOutput.additionalContext;
@@ -109,13 +117,39 @@ jobs:
           node -e '
             const fs=require("fs");
             const map=JSON.parse(fs.readFileSync("skills/pstack-zcode/references/model-map.json","utf8"));
-            const worker=map.aliases[map.tiers.worker.model];
+            const alias=map.tiers.worker.model;
+            const spec=map.aliases[alias];
             const a=fs.readFileSync("agents/poteto-worker.md","utf8");
-            const m=a.match(/^model:\s*"([^"]+)"/m);
-            const l=a.match(/^thoughtLevel:\s*(\S+)/m);
-            if(!m||m[1]!==worker){console.error(`poteto-worker model ${m?m[1]:"(none)"} != ${worker}`);process.exit(1)}
-            if(!l||l[1]!==map.tiers.worker.thoughtLevel){console.error(`poteto-worker thoughtLevel != ${map.tiers.worker.thoughtLevel}`);process.exit(1)}
-            console.log("poteto-worker on worker tier:", worker, l[1]);
+            const fm=a.split("---")[1]??"";
+            const m=fm.match(/^model:\s*"([^"]+)"/m);
+            if(!m||m[1]!==spec.id){console.error(`poteto-worker model ${m?m[1]:"(none)"} != ${spec.id}`);process.exit(1)}
+            // deepseek-flash has no reasoning levels; naming one makes ZCode reject
+            // the dispatch with reasoning-level-not-supported.
+            const l=fm.match(/^thoughtLevel:\s*(\S+)/m);
+            if(!spec.reasoning&&l){
+              console.error(`poteto-worker sets thoughtLevel ${l[1]}, but ${spec.id} has no reasoning levels`);
+              process.exit(1);
+            }
+            if(spec.reasoning&&(!l||l[1]!==map.tiers.worker.thoughtLevel)){
+              console.error(`poteto-worker thoughtLevel ${l?l[1]:"(none)"} != ${map.tiers.worker.thoughtLevel}`);
+              process.exit(1);
+            }
+            console.log("poteto-worker pinned to", spec.id, spec.reasoning?map.tiers.worker.thoughtLevel:"(no level)");
+          '
+          echo "== no sheet role pairs a non-reasoning model with a level =="
+          node -e '
+            const fs=require("fs");
+            const map=JSON.parse(fs.readFileSync("skills/pstack-zcode/references/model-map.json","utf8"));
+            const bad=[];
+            for(const [tierName,tier] of Object.entries(map.tiers)){
+              if(!tier.thoughtLevel) continue;
+              for(const alias of tier.models??[tier.model]){
+                const spec=map.aliases[alias];
+                if(spec&&!spec.reasoning) bad.push(`${tierName} -> ${alias} (${spec.id}) has no reasoning levels`);
+              }
+            }
+            if(bad.length){console.error(bad.join("\n"));process.exit(1)}
+            console.log("every tier with a thoughtLevel uses a reasoning-capable model");
           '
           echo "== no model ID leaks outside the map and the pinned agent =="
           if grep -rln --include='*.md' -E 'account:[a-z-]+/|new-provider-2/' skills/ hooks/ 2>/dev/null | grep -v 'zcode-tools.md'; then

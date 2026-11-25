@@ -29,7 +29,9 @@ if (args.length === 0 || args.includes("--help")) {
 }
 
 if (args.includes("--list")) {
-  for (const [alias, id] of Object.entries(map.aliases)) console.log(`${alias}\t${id}`);
+  for (const [alias, spec] of Object.entries(map.aliases)) {
+    console.log(`${alias}\t${spec.id}\treasoning=${spec.reasoning ? "yes" : "no"}`);
+  }
   process.exit(0);
 }
 
@@ -39,12 +41,18 @@ if (args[0] === "--role") {
   const tierName = map.roles[role];
   if (!tierName) die(`unknown role: ${role}\nknown roles:\n  ${Object.keys(map.roles).join("\n  ")}`);
   const tier = map.tiers[tierName];
-  const ids = tier.models ?? [tier.model];
-  for (const alias of ids) console.log(`${alias}\t${map.aliases[alias] ?? die(`alias "${alias}" missing`)}`);
+  const level = tier.thoughtLevel ? ` @${tier.thoughtLevel}` : "";
+  for (const alias of tier.models ?? [tier.model]) {
+    const spec = map.aliases[alias];
+    if (!spec) die(`alias "${alias}" missing from aliases`);
+    // A model without reasoning support must be dispatched with no level at all.
+    const note = spec.reasoning ? level : "";
+    console.log(`${alias}\t${spec.id}${note}`);
+  }
   process.exit(0);
 }
 
 const alias = args[0];
-const id = map.aliases[alias];
-if (!id) die(`unknown alias: ${alias}\nknown aliases:\n  ${Object.keys(map.aliases).join("\n  ")}`);
-console.log(id);
+const spec = map.aliases[alias];
+if (!spec) die(`unknown alias: ${alias}\nknown aliases:\n  ${Object.keys(map.aliases).join("\n  ")}`);
+console.log(spec.id);

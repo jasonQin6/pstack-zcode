@@ -1,15 +1,27 @@
 {
   "aliases": {
-    "deepseek-flash": "new-provider-2/deepseek-flash",
-    "glm-5.3": "account:bigmodel-individual-coding-plan/GLM-5.3",
-    "glm-5.4": "account:bigmodel-individual-coding-plan/GLM-5.4",
-    "gpt-6-luna": "new-provider-2/group/gpt-6-luna"
+    "deepseek-flash": {
+      "id": "new-provider-2/deepseek-flash",
+      "reasoning": false
+    },
+    "glm-5.3": {
+      "id": "account:bigmodel-individual-coding-plan/GLM-5.3",
+      "reasoning": true
+    },
+    "glm-5.4": {
+      "id": "account:bigmodel-individual-coding-plan/GLM-5.4",
+      "reasoning": true
+    },
+    "gpt-6-luna": {
+      "id": "new-provider-2/group/gpt-6-luna",
+      "reasoning": false
+    }
   },
   "tiers": {
     "worker": {
       "role": "Fastest and cheapest. Bulk edits, mechanical fan-out, verification passes.",
       "model": "deepseek-flash",
-      "thoughtLevel": "medium"
+      "thoughtLevel": null
     },
     "default": {
       "role": "Balanced. Bug fixes, perf work, judgment, prose.",

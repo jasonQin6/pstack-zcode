@@ -15,6 +15,19 @@
 # to this script's own parent directory.
 set -eu
 
+# A hook can fire while the host is already tearing down. On 2026-11-25 a session
+# close at 16:21:45 ran SessionStart hooks seven seconds later and every plugin
+# hook in that batch (this one, design, and the config-level deja hook) failed
+# together, each in 2-17 ms, far too fast for any of them to have run.
+#
+# ZCode passes the session id into the environment, so an empty id means the host
+# had no live session to attach context to. Emitting nothing is then correct.
+# ZCODE_HOOK_FORCE=1 marks a deliberate manual or CI run, which has no session id
+# either and must still emit.
+if [ -z "${ZCODE_SESSION_ID:-}${CLAUDE_SESSION_ID:-}" ]; then
+  [ "${ZCODE_HOOK_FORCE:-}" = 1 ] || exit 0
+fi
+
 : "${ZCODE_PLUGIN_ROOT:=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)}"
 export LC_ALL=C
 

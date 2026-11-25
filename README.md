@@ -41,7 +41,9 @@ grep 'SessionStart' ~/.zcode/cli/log/zcode-*.jsonl | tail
 | Agent | Model | Use for |
 |---|---|---|
 | `pstack-zcode:poteto-agent` | inherits the session's model | The default delegate. Sets no `model`, matching pstack's own `poteto-agent`, whose Subagents section says a role with no configured model runs on the parent's. |
-| `pstack-zcode:poteto-worker` | `deepseek-flash` at `medium`, the `worker` tier | Mechanical, repetitive, or already-specified work: bulk edits, sweeps, formatting passes, verification re-runs. Cheapest tier, and the payload says so. |
+| `pstack-zcode:poteto-worker` | `deepseek-flash`, no reasoning level | Mechanical, repetitive, or already-specified work: bulk edits, sweeps, formatting passes, verification re-runs. Cheapest tier, and the payload says so. |
+
+`deepseek-flash` and `gpt-6-luna` have no reasoning levels. Naming one makes ZCode refuse the dispatch with `reasoning-level-not-supported`, so the worker tier sets no `thoughtLevel` at all. `model-map.json` records reasoning support per alias, and CI fails if a tier pairs a level with a model that cannot take it.
 
 Cost control comes from picking the agent at dispatch, not from changing the default. `poteto-agent` inheriting is deliberate: pinning it to the cheap model would silently downgrade every delegated task, including the ones that needed the session's judgment. pstack's `pstack:poteto-agent` and `pstack:thermo-nuclear-*` reviewers come from the pstack plugin itself and are unaffected.
 
@@ -51,7 +53,7 @@ pstack names roles and tiers, never models. This adapter keeps that abstraction 
 
 | pstack tier | ZCode model | Use it for |
 |---|---|---|
-| `worker` | `deepseek-flash` | Fastest and cheapest: bulk edits, mechanical fan-out, verification passes |
+| `worker` | `deepseek-flash` (no reasoning level) | Fastest and cheapest: bulk edits, mechanical fan-out, verification passes |
 | `default` | `GLM-5.3` | Bug fixes, perf work, judgment, prose |
 | `strongest` | `GLM-5.4` | Escalation: design and contested decisions |
 | `panel` | `GLM-5.4`, `gpt-6-luna`, `deepseek-flash` | Arena and interrogate seats |
@@ -95,6 +97,51 @@ It only touches hook entries running pstack's own `session-start.sh`; anything e
 ```sh
 node scripts/check-upstream.mjs
 ```
+
+## Troubleshooting
+
+Each entry names a real failure, its cause, and a fix you can run.
+
+**`Agent` dispatch fails with `Reasoning level unsupported / 不支持所选思考档位 [reason=reasoning-level-not-supported]`.** A tier names a `thoughtLevel` but its model has no reasoning levels. `deepseek-flash` and `gpt-6-luna` accept none. Check what the alias resolves to and whether it takes a level:
+
+```sh
+node scripts/resolve-model.mjs --list
+```
+
+An alias marked `reasoning=no` must be used with no `@level` in the sheet and no `thoughtLevel:` in an agent file. `model-map.json` records this per alias, and CI fails if a tier pairs a level with such a model. This was a real bug in 0.3.0: the worker tier and `poteto-worker` both named `@medium` on `deepseek-flash`, so every worker dispatch was refused.
+
+**`SessionStart` hooks from several plugins fail at once, each in a few milliseconds.** The host was tearing down while still firing hooks. On 2026-11-25 a session closed at 16:21:45 and SessionStart hooks ran at 16:21:54; this plugin's hook, the `design` plugin's, and the config-level `deja` hook all failed in 2-17 ms, too fast for any to have run. The hook now stays silent when `ZCODE_SESSION_ID` is empty, which is what a teardown run looks like. Set `ZCODE_HOOK_FORCE=1` to make a manual or CI run emit anyway.
+
+**The `Skill` tool rejects `pstack:poteto-mode` with `Unknown skill`.** The cause is unknown. Read the SKILL.md straight from the plugin cache instead, highest version first. The path is `~/.zcode/cli/plugins/cache/pstack-claude/pstack/<version>/skills/poteto-mode/SKILL.md`.
+
+**The session-start routing mandate is missing.** Look for the hook in the log:
+
+```sh
+grep 'SessionStart' ~/.zcode/cli/log/zcode-*.jsonl | tail
+```
+
+A plugin update can re-enable pstack's own hook. `node scripts/disable-upstream-hook.mjs --check` exits 1 when that happened. Re-run the script without the flag, as Disabling pstack's own hook describes.
+
+**`~/.zcode/pstack-models.md` was hand-edited or drifted from the map.** The sheet itself says not to hand-edit it. CI fails when the sheet drifts. Regenerate it:
+
+```sh
+node scripts/render-sheet.mjs
+```
+
+**An alias in the sheet resolves to a model that no longer exists.** Edit the `aliases` layer in [`skills/pstack-zcode/references/model-map.json`](skills/pstack-zcode/references/model-map.json), then re-run `node scripts/render-sheet.mjs`.
+
+`node scripts/check-upstream.mjs` reports its verdict in the exit code.
+
+| Exit | Meaning |
+|---|---|
+| 0 | Clean |
+| 2 | Upstream moved without a structural break |
+| 1 | The contract broke |
+| 3 | GitHub was unreachable. Retry later. |
+
+Following upstream covers what CI does with each.
+
+**Agents from this plugin are missing from the `Agent` tool after an install or an update.** Restart ZCode, then confirm the SessionStart hook the way Install shows.
 
 ## Retiring this plugin
 

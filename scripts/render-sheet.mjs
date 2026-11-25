@@ -26,13 +26,18 @@ function resolveRole(role) {
   if (!tierName) return null;
   const tier = map.tiers[tierName];
   if (!tier) throw new Error(`role "${role}" names unknown tier "${tierName}"`);
-  const known = (alias) => {
-    if (!map.aliases[alias]) throw new Error(`alias "${alias}" is not defined in model-map.json`);
-    return alias;
+
+  const alias = (name) => {
+    if (!map.aliases[name]) throw new Error(`alias "${name}" is not defined in model-map.json`);
+    return name;
   };
-  if (tier.models) return `${role}: ${tier.models.map(known).join(", ")}`;
+  // A level is written only when the tier sets one. A model without reasoning
+  // support (deepseek-flash, gpt-6-luna) rejects the selection outright with
+  // reasoning-level-not-supported, so the suffix must be absent, not "default".
   const level = tier.thoughtLevel ? ` @${tier.thoughtLevel}` : "";
-  return `${role}: ${known(tier.model)}${level}`;
+
+  if (tier.models) return `${role}: ${tier.models.map(alias).join(", ")}${level}`;
+  return `${role}: ${alias(tier.model)}${level}`;
 }
 
 const lines = [
@@ -50,7 +55,9 @@ const lines = [
 
 // The alias table, so a reader of this sheet can turn an alias into a real ID.
 lines.push("# Aliases:");
-for (const [alias, id] of Object.entries(map.aliases)) lines.push(`#   ${alias} = ${id}`);
+for (const [alias, spec] of Object.entries(map.aliases)) {
+  lines.push(`#   ${alias} = ${spec.id}${spec.reasoning ? "" : "  (no reasoning levels)"}`);
+}
 lines.push("");
 
 // Group roles by tier so the file reads as a cost ladder, cheapest first.
