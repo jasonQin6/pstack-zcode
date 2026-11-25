@@ -1,6 +1,6 @@
 {
   "name": "pstack-zcode",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "ZCode 适配层 for pstack: a SessionStart hook that emits the JSON context ZCode requires, a native poteto-agent with ZCode paths and model tiering, and a ZCode tool mapping for pstack skills.",
   "author": {
     "name": "jasonQin6"

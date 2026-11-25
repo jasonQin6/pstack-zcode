@@ -44,23 +44,35 @@ poteto-mode's Subagents section sets Claude defaults that map onto ZCode only pa
 
 ## Model names
 
-ZCode model IDs take one of these forms, and only the first two need no provider prefix:
+pstack names roles and tiers, never concrete models. Claude Code resolves those to `opus`/`fable`/`sonnet`/`haiku`; ZCode resolves none of them. The translation lives in exactly one place, [model-map.json](model-map.json). Read it rather than hard-coding an ID from this prose.
 
-- `<providerId>/<modelId>`, where the model ID itself may hold a slash, as in `new-provider-2/group/gpt-6-luna`
-- `account:<plan>/<model>`, as in `account:bigmodel-start-plan/GLM-5.3-Flash`
-- `builtin:<plan>/<model>`, as in `builtin:bigmodel-coding-plan/GLM-5.3-Flash`
+The map has two layers, because pstack's own sheet parser accepts only `[a-z0-9][a-z0-9.-]*` as a model entry while a ZCode ID holds a colon and a slash:
 
-Claude's family names (`opus`, `fable`, `sonnet`, `haiku`) do not resolve here. Substitutes on this machine, as configured in `~/.zcode/v2/provider_config.json`:
+- `aliases` turns a sheet-safe alias into a real ZCode ID (`glm-5.4` -> `account:bigmodel-individual-coding-plan/GLM-5.4`).
+- `tiers` and `roles` assign pstack's role names to those aliases.
 
-- Execution tier (`feature, refactoring`, `swarm workers`): `new-provider-2/deepseek-flash`
-- Default and judgment tier (`bug-fix`, `perf-issue`, `hillclimb`, `judgment and prose`): `new-provider-2/group/gpt-6-luna`
-- Second opinion for a panel: `new-provider-2/mimo-v2.6-flash`
+So the sheet at `~/.zcode/pstack-models.md` holds aliases, and anything that dispatches a subagent resolves them:
 
-Only three models are reachable here, so a four-seat panel cannot be model-diverse. Use the three and say in the verdict that diversity was reduced, rather than inventing a fourth.
+```sh
+node scripts/render-sheet.mjs              # regenerate the sheet from the map
+node scripts/resolve-model.mjs --role hillclimb   # alias -> real ZCode ID
+node scripts/resolve-model.mjs glm-5.4     # one alias
+```
 
-Reasoning level is `thoughtLevel` in an agent definition and `reasoningLevel` in a model selection, with values decided by the provider. Here that is `low`, `medium`, or `high`. Claude's `xhigh` and `max` are not accepted.
+The ladder on this machine, cheapest and fastest first:
 
-The role sheet this runtime reads is `~/.zcode/pstack-models.md`. Write it with `/setup-pstack`, mapping each role to an ID above.
+| pstack tier | Alias | ZCode model | Why |
+|---|---|---|---|
+| `worker` | `deepseek-flash` | `new-provider-2/deepseek-flash` | Fastest and cheapest. Bulk edits, mechanical fan-out, verification passes. |
+| `default` | `glm-5.3` | `account:bigmodel-individual-coding-plan/GLM-5.3` | Balanced, for bug fixes, perf work, judgment and prose. |
+| `strongest` | `glm-5.4` | `account:bigmodel-individual-coding-plan/GLM-5.4` | Escalation only, for design and contested decisions. |
+| `panel` | three aliases | `glm-5.4`, `gpt-6-luna`, `deepseek-flash` | Three reachable models, so a four-seat panel is not model-diverse here. Use these three and say the diversity was reduced. |
+
+Route by cost, not by habit. Anything mechanical, repetitive, or already specified goes to `worker`: a `deepseek-flash` turn costs a fraction of a `glm-5.4` turn and finishes sooner, so a queue of small edits belongs there. Reserve `default` for work needing real judgment that is not a design decision. Reach for `strongest` only when `default` has already failed, or when the user named it.
+
+Do not add a model ID outside `model-map.json`. If a role needs one, add an alias there and regenerate; the CI check fails when the sheet and the map disagree.
+
+Reasoning level is `thoughtLevel` in an agent definition and `reasoningLevel` in a model selection. The providers reachable here accept `low`, `medium` and `high` only: pstack's `xhigh` and `max` clamp to `high`, and `model-map.json` records that clamp so an upstream skill asking for `max` still yields a valid level.
 
 ## Session routing hook
 

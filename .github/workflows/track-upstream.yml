@@ -47,6 +47,35 @@ jobs:
             });
           '
 
+      - name: Run adapter self-checks
+        run: |
+          set -e
+          echo "== sheet renders from the map =="
+          ZCODE_CONFIG_DIR="$RUNNER_TEMP" node scripts/render-sheet.mjs
+          ZCODE_CONFIG_DIR="$RUNNER_TEMP" node scripts/render-sheet.mjs --check
+          echo "== model aliases resolve =="
+          node scripts/resolve-model.mjs --list >/dev/null
+          for alias in $(node scripts/resolve-model.mjs --list | cut -f1); do
+            id=$(node scripts/resolve-model.mjs "$alias")
+            case "$id" in */*) ;; *) echo "alias $alias did not resolve to an ID"; exit 1 ;; esac
+          done
+          echo "== the native agent matches the worker tier =="
+          node -e '
+            const fs=require("fs");
+            const map=JSON.parse(fs.readFileSync("skills/pstack-zcode/references/model-map.json","utf8"));
+            const worker=map.aliases[map.tiers.worker.model];
+            const agent=fs.readFileSync("agents/poteto-agent.md","utf8");
+            const m=agent.match(/^model:\s*"([^"]+)"/m);
+            const l=agent.match(/^thoughtLevel:\s*(\S+)/m);
+            if(!m||m[1]!==worker){console.error(`poteto-agent model ${m?m[1]:"(none)"} != worker alias ${worker}`);process.exit(1)}
+            if(!l||l[1]!==map.tiers.worker.thoughtLevel){console.error(`poteto-agent thoughtLevel ${l?l[1]:"(none)"} != ${map.tiers.worker.thoughtLevel}`);process.exit(1)}
+            console.log("poteto-agent on worker tier:", worker, l[1]);
+          '
+          echo "== no other file hardcodes a model ID =="
+          if grep -rln --include='*.md' -E 'account:[a-z-]+/|new-provider-2/' skills/ hooks/ 2>/dev/null | grep -v 'zcode-tools.md'; then
+            echo "a model ID leaked outside the map and the agent"; exit 1
+          fi
+
       - name: Check upstream drift
         id: drift
         env:

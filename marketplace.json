@@ -10,7 +10,7 @@
       "name": "pstack-zcode",
       "source": ".",
       "description": "ZCode 适配层 for pstack: SessionStart hook 输出 ZCode 要求的 JSON，原生 poteto-agent，工具映射表。",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "displayName": "pstack for ZCode",
       "displayName_i18n": {
         "zh-CN": "pstack ZCode 适配"

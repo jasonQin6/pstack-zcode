@@ -38,7 +38,24 @@ grep 'SessionStart' ~/.zcode/cli/log/zcode-*.jsonl | tail
 
 ## Model tiering
 
-The native agent ships on the execution tier (`new-provider-2/deepseek-flash` at `thoughtLevel: medium`). To put a different tier behind it without editing the agent, use the settings-level override in `~/.zcode/cli/config.json`:
+pstack names roles and tiers, never models. This adapter keeps that abstraction and owns the only translation, in [`skills/pstack-zcode/references/model-map.json`](skills/pstack-zcode/references/model-map.json):
+
+| pstack tier | ZCode model | Use it for |
+|---|---|---|
+| `worker` | `deepseek-flash` | Fastest and cheapest: bulk edits, mechanical fan-out, verification passes |
+| `default` | `GLM-5.3` | Bug fixes, perf work, judgment, prose |
+| `strongest` | `GLM-5.4` | Escalation: design and contested decisions |
+| `panel` | `GLM-5.4`, `gpt-6-luna`, `deepseek-flash` | Arena and interrogate seats |
+
+The sheet holds aliases rather than IDs, because pstack's own parser accepts only `[a-z0-9][a-z0-9.-]*` while a ZCode ID holds a colon and a slash. `check-sheet.sh` from pstack passes on the generated sheet:
+
+```sh
+node scripts/render-sheet.mjs                      # regenerate ~/.zcode/pstack-models.md from the map
+node scripts/resolve-model.mjs --role hillclimb    # alias -> real ZCode ID
+node scripts/resolve-model.mjs glm-5.4             # one alias
+```
+
+The native agent ships on `worker` (`deepseek-flash` at `medium`), which is the cheapest tier and the right default for delegated mechanical work. To put a different tier behind it without editing the agent, override in `~/.zcode/cli/config.json`:
 
 ```json
 {
@@ -48,7 +65,19 @@ The native agent ships on the execution tier (`new-provider-2/deepseek-flash` at
 }
 ```
 
-`pstack:thermo-nuclear-*` reviewers belong to the pstack plugin and take an override under those names.
+CI fails when the rendered sheet drifts from the map, or when the agent's model no longer matches the `worker` tier.
+
+## Disabling pstack's own hook
+
+pstack's `SessionStart` hook fails on every ZCode start (see above). There is no per-plugin hook switch in the ZCode config, and `zcode plugins update` rewrites the plugin cache, so the fix is a script you re-run after an update:
+
+```sh
+node scripts/disable-upstream-hook.mjs          # set enabled:false on the superseded hook
+node scripts/disable-upstream-hook.mjs --check  # exit 1 if an update re-enabled it
+```
+
+It only touches hook entries running pstack's own `session-start.sh`; anything else pstack ships is left alone.
+
 
 ## Following upstream
 
