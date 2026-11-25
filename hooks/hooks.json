@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${ZCODE_PLUGIN_ROOT}/hooks/zcode-session-start.sh\"",
+            "timeout": 15,
+            "statusMessage": "Loading pstack routing for ZCode"
+          }
+        ]
+      }
+    ]
+  }
+}

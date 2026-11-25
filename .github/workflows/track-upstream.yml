@@ -1,0 +1,125 @@
+name: Track pstack upstream
+
+# Detects drift between this adapter and the pstack install it adapts, then opens
+# (or updates) a PR recording the move. A structural break fails the run instead,
+# because a human has to decide how the adapter changes.
+
+on:
+  schedule:
+    - cron: "17 2 * * *"   # daily, off-peak
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/check-upstream.mjs"
+      - "upstream-stamp.json"
+      - ".github/workflows/track-upstream.yml"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: track-upstream
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Verify hook output stays valid JSON
+        run: |
+          chmod +x hooks/zcode-session-start.sh
+          out=$(ZCODE_PLUGIN_ROOT="$PWD" ./hooks/zcode-session-start.sh)
+          printf '%s' "$out" | node -e '
+            let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{
+              const o=JSON.parse(s);
+              if(typeof o.additionalContext!=="string"||!o.additionalContext.length){
+                console.error("additionalContext missing or empty");process.exit(1);
+              }
+              console.log("hook JSON ok, length", o.additionalContext.length);
+            });
+          '
+
+      - name: Check upstream drift
+        id: drift
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          node scripts/check-upstream.mjs
+          code=$?
+          set -e
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          case "$code" in
+            0) echo "status=clean" >> "$GITHUB_OUTPUT" ;;
+            2) echo "status=moved" >> "$GITHUB_OUTPUT" ;;
+            3) echo "status=network" >> "$GITHUB_OUTPUT"; exit 1 ;;
+            *) echo "status=drift" >> "$GITHUB_OUTPUT"; exit 1 ;;
+          esac
+
+      - name: Record the new upstream revision
+        if: steps.drift.outputs.status == 'moved'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node -e '
+            const {execFileSync}=require("child_process");
+            const fs=require("fs");
+            const gh=(a)=>execFileSync("gh",a,{encoding:"utf8"}).trim();
+            const v=Buffer.from(gh(["api","repos/michael-denyer/pstack-claude/contents/VERSION","--jq",".content"]),"base64").toString().trim();
+            const sha=gh(["api","repos/michael-denyer/pstack-claude/commits/main","--jq",".sha"]);
+            fs.writeFileSync("upstream-stamp.json",JSON.stringify({
+              upstreamVersion:v,upstreamSha:sha,recordedAt:new Date().toISOString()
+            },null,2)+"\n");
+          '
+
+      - name: Open or update the tracking PR
+        if: steps.drift.outputs.status == 'moved'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          v=$(node -p 'require("./upstream-stamp.json").upstreamVersion')
+          branch="chore/track-upstream-${v}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git add upstream-stamp.json
+          if git diff --cached --quiet; then
+            echo "stamp already current"; exit 0
+          fi
+          git commit -m "chore: follow pstack upstream ${v}"
+          git push --force origin "$branch"
+          if ! gh pr list --head "$branch" --json number --jq '.[0].number' | grep -q .; then
+            gh pr create \
+              --head "$branch" \
+              --title "Follow pstack upstream ${v}" \
+              --body "Upstream moved to \`${v}\`.
+
+          \`scripts/check-upstream.mjs\` found **no structural break** in the files this adapter depends on (hook entry, mandate text, agent role, poteto-mode skill, models.json tiers, sheet reader).
+
+          Review before merging:
+          - Compare upstream: \`gh api repos/michael-denyer/pstack-claude/compare/<old-sha>...main\`
+          - \`references/zcode-tools.md\` still matches what pstack skills now name
+          - \`hooks/session-start-zcode.md\` still carries the current prompts
+
+          Merging only records the stamp. Any adapter change belongs in its own commit."
+          fi
+
+      - name: Report a structural break
+        if: steps.drift.outputs.status == 'drift'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          title="pstack upstream broke the adapter contract"
+          if ! gh issue list --search "$title in:title" --state open --json number --jq '.[0].number' | grep -q .; then
+            gh issue create --title "$title" --body "See the failed run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+
+          \`scripts/check-upstream.mjs\` exited 1, which means a file this adapter depends on moved, disappeared, or changed shape. Re-read the failure, fix the adapter, and update \`upstream-stamp.json\` in the same change."
+          fi

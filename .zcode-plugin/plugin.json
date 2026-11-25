@@ -1,0 +1,19 @@
+{
+  "name": "pstack-zcode",
+  "version": "0.1.0",
+  "description": "ZCode 适配层 for pstack: a SessionStart hook that emits the JSON context ZCode requires, a native poteto-agent with ZCode paths and model tiering, and a ZCode tool mapping for pstack skills.",
+  "author": {
+    "name": "jasonQin6"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/jasonQin6/pstack-zcode",
+  "keywords": [
+    "zcode",
+    "pstack",
+    "adapter",
+    "poteto-mode"
+  ],
+  "hooks": "hooks/hooks.json",
+  "agents": "agents",
+  "skills": "skills"
+}

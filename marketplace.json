@@ -1,0 +1,24 @@
+{
+  "name": "pstack-zcode",
+  "owner": {
+    "name": "jasonQin6",
+    "url": "https://github.com/jasonQin6"
+  },
+  "description": "ZCode adapter for pstack: a SessionStart hook that emits the JSON ZCode requires, a native poteto-agent with ZCode paths and model tiering, and the Claude Code to ZCode tool mapping.",
+  "plugins": [
+    {
+      "name": "pstack-zcode",
+      "source": ".",
+      "description": "ZCode 适配层 for pstack: SessionStart hook 输出 ZCode 要求的 JSON，原生 poteto-agent，工具映射表。",
+      "version": "0.1.0",
+      "displayName": "pstack for ZCode",
+      "displayName_i18n": {
+        "zh-CN": "pstack ZCode 适配"
+      },
+      "description_i18n": {
+        "zh-CN": "ZCode 适配层 for pstack：修复 SessionStart hook 的 JSON 输出、提供原生 poteto-agent 与工具映射表。"
+      },
+      "category": "developer-tools"
+    }
+  ]
+}
