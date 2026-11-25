@@ -3,8 +3,13 @@
 //
 // pstack skills name roles and tiers, never models. On Claude Code the sheet at
 // ~/.claude/pstack-models.md holds one resolved model per role. ZCode has no
-// model names in common, so this script is the only place a ZCode ID is written:
-// edit model-map.json, then regenerate the sheet.
+// names in common, so this script is the only place a ZCode ID is written: edit
+// model-map.json, then regenerate the sheet.
+//
+// Levels are per model, not global. Each provider advertises its own set
+// (deepseek-flash and GLM take low/high/max; gpt-6-luna takes only high), and a
+// level outside that set is refused at dispatch. So a tier's level is snapped to
+// the nearest level its own model accepts.
 //
 // Usage:
 //   node scripts/render-sheet.mjs            write the sheet
@@ -21,23 +26,57 @@ const SHEET = join(process.env.ZCODE_CONFIG_DIR ?? join(homedir(), ".zcode"), "p
 
 const map = JSON.parse(readFileSync(MAP, "utf8"));
 
+// pstack's own ladder, weakest to strongest. A requested level is ranked here,
+// then matched to the closest level the concrete model advertises.
+const LADDER = map.effort.pstackLevels;
+
+/**
+ * Snap a requested pstack level onto the levels a model accepts.
+ * Ties resolve upward, because a task that asked for more thinking should not
+ * silently get less.
+ */
+function snap(level, accepted) {
+  if (accepted.includes(level)) return level;
+  const want = LADDER.indexOf(level);
+  if (want < 0) throw new Error(`unknown pstack level "${level}"`);
+  let best = null;
+  let bestDistance = Infinity;
+  for (const candidate of accepted) {
+    const at = LADDER.indexOf(candidate);
+    if (at < 0) continue;
+    const distance = Math.abs(at - want);
+    // Prefer the closer level; on a tie prefer the higher one.
+    if (distance < bestDistance || (distance === bestDistance && at > (LADDER.indexOf(best) ?? -1))) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  }
+  if (best === null) throw new Error(`no level of ${accepted.join("/")} is on pstack's ladder`);
+  return best;
+}
+
+function alias(name) {
+  const spec = map.aliases[name];
+  if (!spec) throw new Error(`alias "${name}" is not defined in model-map.json`);
+  return spec;
+}
+
+/** "alias @level", with the level snapped to what that model accepts. */
+function seat(name, requestedLevel) {
+  const spec = alias(name);
+  if (!spec.reasoning || !requestedLevel) return name;
+  const accepted = spec.levels ?? [];
+  if (accepted.length === 0) return name;
+  return `${name} @${snap(requestedLevel, accepted)}`;
+}
+
 function resolveRole(role) {
   const tierName = map.roles[role];
   if (!tierName) return null;
   const tier = map.tiers[tierName];
   if (!tier) throw new Error(`role "${role}" names unknown tier "${tierName}"`);
-
-  const alias = (name) => {
-    if (!map.aliases[name]) throw new Error(`alias "${name}" is not defined in model-map.json`);
-    return name;
-  };
-  // A level is written only when the tier sets one. A model without reasoning
-  // support (deepseek-flash, gpt-6-luna) rejects the selection outright with
-  // reasoning-level-not-supported, so the suffix must be absent, not "default".
-  const level = tier.thoughtLevel ? ` @${tier.thoughtLevel}` : "";
-
-  if (tier.models) return `${role}: ${tier.models.map(alias).join(", ")}${level}`;
-  return `${role}: ${alias(tier.model)}${level}`;
+  if (tier.models) return `${role}: ${tier.models.map((m) => seat(m, tier.thoughtLevel)).join(", ")}`;
+  return `${role}: ${seat(tier.model, tier.thoughtLevel)}`;
 }
 
 const lines = [
@@ -53,20 +92,18 @@ const lines = [
   "",
 ];
 
-// The alias table, so a reader of this sheet can turn an alias into a real ID.
 lines.push("# Aliases:");
-for (const [alias, spec] of Object.entries(map.aliases)) {
-  lines.push(`#   ${alias} = ${spec.id}${spec.reasoning ? "" : "  (no reasoning levels)"}`);
+for (const [name, spec] of Object.entries(map.aliases)) {
+  const levels = spec.reasoning ? `levels: ${(spec.levels ?? []).join(", ") || "unknown"}` : "no reasoning levels";
+  lines.push(`#   ${name} = ${spec.id}  (${levels})`);
 }
 lines.push("");
 
-// Group roles by tier so the file reads as a cost ladder, cheapest first.
-const order = ["worker", "default", "strongest", "panel"];
-for (const tierName of order) {
+// Cheapest tier first, so the sheet reads as a cost ladder.
+for (const tierName of ["worker", "default", "strongest", "panel"]) {
   const roles = Object.entries(map.roles)
     .filter(([, t]) => t === tierName)
     .map(([role]) => role);
-  if (roles.length === 0) continue;
   for (const role of roles) lines.push(resolveRole(role));
 }
 

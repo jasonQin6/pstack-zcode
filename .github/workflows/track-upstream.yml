@@ -123,33 +123,48 @@ jobs:
             const fm=a.split("---")[1]??"";
             const m=fm.match(/^model:\s*"([^"]+)"/m);
             if(!m||m[1]!==spec.id){console.error(`poteto-worker model ${m?m[1]:"(none)"} != ${spec.id}`);process.exit(1)}
-            // deepseek-flash has no reasoning levels; naming one makes ZCode reject
-            // the dispatch with reasoning-level-not-supported.
             const l=fm.match(/^thoughtLevel:\s*(\S+)/m);
-            if(!spec.reasoning&&l){
-              console.error(`poteto-worker sets thoughtLevel ${l[1]}, but ${spec.id} has no reasoning levels`);
+            if(!spec.reasoning){
+              if(l){console.error(`poteto-worker sets thoughtLevel ${l[1]}, but ${spec.id} has no reasoning levels`);process.exit(1)}
+            } else if(!l){
+              console.error(`poteto-worker sets no thoughtLevel, but ${spec.id} accepts ${spec.levels.join("/")}`);
+              process.exit(1);
+            } else if(!spec.levels.includes(l[1])){
+              console.error(`poteto-worker thoughtLevel ${l[1]} is not one of ${spec.levels.join("/")}`);
               process.exit(1);
             }
-            if(spec.reasoning&&(!l||l[1]!==map.tiers.worker.thoughtLevel)){
-              console.error(`poteto-worker thoughtLevel ${l?l[1]:"(none)"} != ${map.tiers.worker.thoughtLevel}`);
-              process.exit(1);
-            }
-            console.log("poteto-worker pinned to", spec.id, spec.reasoning?map.tiers.worker.thoughtLevel:"(no level)");
+            console.log("poteto-worker pinned to", spec.id, l?l[1]:"(no level)");
           '
-          echo "== no sheet role pairs a non-reasoning model with a level =="
+          echo "== every dispatched level is one its own model accepts =="
           node -e '
             const fs=require("fs");
             const map=JSON.parse(fs.readFileSync("skills/pstack-zcode/references/model-map.json","utf8"));
+            const LADDER=map.effort.pstackLevels;
+            const snap=(want,accepted)=>{
+              if(accepted.includes(want))return want;
+              const wi=LADDER.indexOf(want);if(wi<0)return null;
+              let best=null,bd=Infinity;
+              for(const c of accepted){const at=LADDER.indexOf(c);if(at<0)continue;
+                const d=Math.abs(at-wi);
+                if(d<bd||(d===bd&&at>(LADDER.indexOf(best)??-1))){best=c;bd=d}}
+              return best;
+            };
             const bad=[];
             for(const [tierName,tier] of Object.entries(map.tiers)){
-              if(!tier.thoughtLevel) continue;
+              if(!tier.thoughtLevel)continue;
               for(const alias of tier.models??[tier.model]){
                 const spec=map.aliases[alias];
-                if(spec&&!spec.reasoning) bad.push(`${tierName} -> ${alias} (${spec.id}) has no reasoning levels`);
+                if(!spec)continue;
+                if(!spec.reasoning){
+                  bad.push(`${tierName} -> ${alias}: tier sets ${tier.thoughtLevel} but the model has no levels`);
+                  continue;
+                }
+                const got=snap(tier.thoughtLevel,spec.levels??[]);
+                if(!got) bad.push(`${tierName} -> ${alias}: ${tier.thoughtLevel} cannot map onto ${(spec.levels??[]).join("/")||"(none)"}`);
               }
             }
             if(bad.length){console.error(bad.join("\n"));process.exit(1)}
-            console.log("every tier with a thoughtLevel uses a reasoning-capable model");
+            console.log("every tier level maps onto a level its model accepts");
           '
           echo "== no model ID leaks outside the map and the pinned agent =="
           if grep -rln --include='*.md' -E 'account:[a-z-]+/|new-provider-2/' skills/ hooks/ 2>/dev/null | grep -v 'zcode-tools.md'; then

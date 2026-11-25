@@ -41,9 +41,9 @@ grep 'SessionStart' ~/.zcode/cli/log/zcode-*.jsonl | tail
 | Agent | Model | Use for |
 |---|---|---|
 | `pstack-zcode:poteto-agent` | inherits the session's model | The default delegate. Sets no `model`, matching pstack's own `poteto-agent`, whose Subagents section says a role with no configured model runs on the parent's. |
-| `pstack-zcode:poteto-worker` | `deepseek-flash`, no reasoning level | Mechanical, repetitive, or already-specified work: bulk edits, sweeps, formatting passes, verification re-runs. Cheapest tier, and the payload says so. |
+| `pstack-zcode:poteto-worker` | `deepseek-flash` at `low` | Mechanical, repetitive, or already-specified work: bulk edits, sweeps, formatting passes, verification re-runs. Cheapest tier, and the payload says so. |
 
-`deepseek-flash` and `gpt-6-luna` have no reasoning levels. Naming one makes ZCode refuse the dispatch with `reasoning-level-not-supported`, so the worker tier sets no `thoughtLevel` at all. `model-map.json` records reasoning support per alias, and CI fails if a tier pairs a level with a model that cannot take it.
+Levels are per model, not global, so `model-map.json` records each alias's accepted set. On this machine `deepseek-flash`, `GLM-5.3` and `GLM-5.4` take `low/high/max`, and `gpt-6-luna` takes only `high`. A tier's level is snapped to the nearest level its own model accepts, preferring the higher one on a tie, and CI fails if a level cannot be mapped at all.
 
 Cost control comes from picking the agent at dispatch, not from changing the default. `poteto-agent` inheriting is deliberate: pinning it to the cheap model would silently downgrade every delegated task, including the ones that needed the session's judgment. pstack's `pstack:poteto-agent` and `pstack:thermo-nuclear-*` reviewers come from the pstack plugin itself and are unaffected.
 
@@ -53,9 +53,9 @@ pstack names roles and tiers, never models. This adapter keeps that abstraction 
 
 | pstack tier | ZCode model | Use it for |
 |---|---|---|
-| `worker` | `deepseek-flash` (no reasoning level) | Fastest and cheapest: bulk edits, mechanical fan-out, verification passes |
+| `worker` | `deepseek-flash` @ `low` | Fastest and cheapest: bulk edits, mechanical fan-out, verification passes |
 | `default` | `GLM-5.3` | Bug fixes, perf work, judgment, prose |
-| `strongest` | `GLM-5.4` | Escalation: design and contested decisions |
+| `strongest` | `GLM-5.4` @ `max` | Escalation: design and contested decisions |
 | `panel` | `GLM-5.4`, `gpt-6-luna`, `deepseek-flash` | Arena and interrogate seats |
 
 The sheet holds aliases rather than IDs, because pstack's own parser accepts only `[a-z0-9][a-z0-9.-]*` while a ZCode ID holds a colon and a slash. `check-sheet.sh` from pstack passes on the generated sheet:
@@ -102,13 +102,24 @@ node scripts/check-upstream.mjs
 
 Each entry names a real failure, its cause, and a fix you can run.
 
-**`Agent` dispatch fails with `Reasoning level unsupported / 不支持所选思考档位 [reason=reasoning-level-not-supported]`.** A tier names a `thoughtLevel` but its model has no reasoning levels. `deepseek-flash` and `gpt-6-luna` accept none. Check what the alias resolves to and whether it takes a level:
+**`Agent` dispatch fails with `Reasoning level unsupported / 不支持所选思考档位 [reason=reasoning-level-not-supported]`.** ZCode builds a model's reasoning levels from its own provider config, not from what the gateway advertises. `deepseek-flash` was missing `optionSpecs.reasoningLevel` in `~/.zcode/v2/provider_config.json`, so ZCode saw a model with no levels and refused any dispatch that named one.
+
+Two separate things have to line up:
+
+1. ZCode knows the model's levels. Confirm the entry in `~/.zcode/v2/provider_config.json` under `modelConfigRules.providerModelRules` carries `optionSpecs.reasoningLevel.values`.
+2. The level you name is in that set. Check which set an alias maps to:
 
 ```sh
 node scripts/resolve-model.mjs --list
 ```
 
-An alias marked `reasoning=no` must be used with no `@level` in the sheet and no `thoughtLevel:` in an agent file. `model-map.json` records this per alias, and CI fails if a tier pairs a level with such a model. This was a real bug in 0.3.0: the worker tier and `poteto-worker` both named `@medium` on `deepseek-flash`, so every worker dispatch was refused.
+Compare against the gateway's own view, which is the ground truth for what the backend will accept:
+
+```sh
+curl -s http://127.0.0.1:3425/v1/models | jq '.data[] | select(.id|test("deepseek")) | {id, reasoning, reasoning_levels}'
+```
+
+pstack's own ladder has `medium` and `xhigh`, which most models here do not expose. `render-sheet.mjs` snaps a tier's level to the nearest level its model accepts, so `medium` becomes `high` rather than an invalid value.
 
 **`SessionStart` hooks from several plugins fail at once, each in a few milliseconds.** The host was tearing down while still firing hooks. On 2026-11-25 a session closed at 16:21:45 and SessionStart hooks ran at 16:21:54; this plugin's hook, the `design` plugin's, and the config-level `deja` hook all failed in 2-17 ms, too fast for any to have run. The hook now stays silent when `ZCODE_SESSION_ID` is empty, which is what a teardown run looks like. Set `ZCODE_HOOK_FORCE=1` to make a manual or CI run emit anyway.
 

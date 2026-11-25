@@ -30,9 +30,32 @@ if (args.length === 0 || args.includes("--help")) {
 
 if (args.includes("--list")) {
   for (const [alias, spec] of Object.entries(map.aliases)) {
-    console.log(`${alias}\t${spec.id}\treasoning=${spec.reasoning ? "yes" : "no"}`);
+    const levels = spec.reasoning ? (spec.levels ?? []).join("|") || "unknown" : "none";
+    console.log(`${alias}\t${spec.id}\tlevels=${levels}`);
   }
   process.exit(0);
+}
+
+// pstack's ladder, weakest to strongest. Mirrors render-sheet.mjs so the sheet
+// and this resolver never disagree about which level a seat ends up at.
+const LADDER = map.effort.pstackLevels;
+
+function snap(level, accepted) {
+  if (accepted.includes(level)) return level;
+  const want = LADDER.indexOf(level);
+  if (want < 0) return null;
+  let best = null;
+  let bestDistance = Infinity;
+  for (const candidate of accepted) {
+    const at = LADDER.indexOf(candidate);
+    if (at < 0) continue;
+    const distance = Math.abs(at - want);
+    if (distance < bestDistance || (distance === bestDistance && at > (LADDER.indexOf(best) ?? -1))) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  }
+  return best;
 }
 
 if (args[0] === "--role") {
@@ -41,12 +64,15 @@ if (args[0] === "--role") {
   const tierName = map.roles[role];
   if (!tierName) die(`unknown role: ${role}\nknown roles:\n  ${Object.keys(map.roles).join("\n  ")}`);
   const tier = map.tiers[tierName];
-  const level = tier.thoughtLevel ? ` @${tier.thoughtLevel}` : "";
   for (const alias of tier.models ?? [tier.model]) {
     const spec = map.aliases[alias];
     if (!spec) die(`alias "${alias}" missing from aliases`);
-    // A model without reasoning support must be dispatched with no level at all.
-    const note = spec.reasoning ? level : "";
+    // A model without reasoning levels is dispatched with no level at all.
+    let note = "";
+    if (spec.reasoning && tier.thoughtLevel) {
+      const level = snap(tier.thoughtLevel, spec.levels ?? []);
+      if (level) note = ` @${level}`;
+    }
     console.log(`${alias}\t${spec.id}${note}`);
   }
   process.exit(0);

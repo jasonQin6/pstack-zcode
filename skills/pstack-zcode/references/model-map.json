@@ -2,26 +2,30 @@
   "aliases": {
     "deepseek-flash": {
       "id": "new-provider-2/deepseek-flash",
-      "reasoning": false
+      "reasoning": true,
+      "levels": ["low", "high", "max"]
     },
     "glm-5.3": {
       "id": "account:bigmodel-individual-coding-plan/GLM-5.3",
-      "reasoning": true
+      "reasoning": true,
+      "levels": ["low", "high", "max"]
     },
     "glm-5.4": {
       "id": "account:bigmodel-individual-coding-plan/GLM-5.4",
-      "reasoning": true
+      "reasoning": true,
+      "levels": ["low", "high", "max"]
     },
     "gpt-6-luna": {
       "id": "new-provider-2/group/gpt-6-luna",
-      "reasoning": false
+      "reasoning": true,
+      "levels": ["high"]
     }
   },
   "tiers": {
     "worker": {
       "role": "Fastest and cheapest. Bulk edits, mechanical fan-out, verification passes.",
       "model": "deepseek-flash",
-      "thoughtLevel": null
+      "thoughtLevel": "low"
     },
     "default": {
       "role": "Balanced. Bug fixes, perf work, judgment, prose.",
@@ -31,7 +35,7 @@
     "strongest": {
       "role": "Highest capability. Design, architecture, contested decisions.",
       "model": "glm-5.4",
-      "thoughtLevel": "high"
+      "thoughtLevel": "max"
     },
     "panel": {
       "role": "Diversity for arena and interrogate, ordered by preference.",
@@ -53,11 +57,7 @@
     "interrogate reviewers": "panel"
   },
   "effort": {
-    "supported": ["low", "medium", "high"],
-    "clamp": {
-      "xhigh": "high",
-      "max": "high"
-    },
-    "default": "medium"
+    "pstackLevels": ["low", "medium", "high", "xhigh", "max"],
+    "default": "high"
   }
 }
