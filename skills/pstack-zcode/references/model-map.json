@@ -23,19 +23,22 @@
   },
   "tiers": {
     "worker": {
-      "role": "Fastest and cheapest. Bulk edits, mechanical fan-out, verification passes.",
+      "role": "Bulk edits, mechanical fan-out, verification passes.",
       "model": "deepseek-flash",
-      "thoughtLevel": "low"
+      "thoughtLevel": "high",
+      "agent": "poteto-worker"
     },
     "default": {
       "role": "Balanced. Bug fixes, perf work, judgment, prose.",
       "model": "glm-5.3",
-      "thoughtLevel": "high"
+      "thoughtLevel": "high",
+      "agent": "poteto-default"
     },
     "strongest": {
       "role": "Highest capability. Design, architecture, contested decisions.",
       "model": "glm-5.4",
-      "thoughtLevel": "max"
+      "thoughtLevel": "max",
+      "agent": "poteto-strongest"
     },
     "panel": {
       "role": "Diversity for arena and interrogate, ordered by preference.",
@@ -55,6 +58,13 @@
     "arena runners": "panel",
     "arena cross-judge pool": "panel",
     "interrogate reviewers": "panel"
+  },
+  "roleAgents": {
+    "no-comments reviewer": ["pstack@pstack-claude:comment-sicko"],
+    "thermos reviewers": [
+      "pstack@pstack-claude:thermo-nuclear-review-subagent",
+      "pstack@pstack-claude:thermo-nuclear-code-quality-review-subagent"
+    ]
   },
   "effort": {
     "pstackLevels": ["low", "medium", "high", "xhigh", "max"],

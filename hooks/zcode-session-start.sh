@@ -3,8 +3,8 @@
 #
 # ZCode parses hook stdout as a strict JSON object and drops plain text, so this
 # script emits the mandate as JSON rather than the raw Markdown that pstack's own
-# claude branch prints. That difference is why pstack's hook fails on every start
-# here and why this plugin exists.
+# claude branch prints. ZCode therefore drops pstack's own mandate, which is why
+# this plugin exists.
 #
 # A SessionStart hook must never make noise or block a session, so every failure
 # path below exits 0 with no output. Silence is a clean pass; a broken JSON line
@@ -22,7 +22,7 @@ set -eu
 #
 # ZCode passes the session id into the environment, so an empty id means the host
 # had no live session to attach context to. Emitting nothing is then correct.
-# ZCODE_HOOK_FORCE=1 marks a deliberate manual or CI run, which has no session id
+# ZCODE_HOOK_FORCE=1 marks a deliberate manual run, which has no session id
 # either and must still emit.
 if [ -z "${ZCODE_SESSION_ID:-}${CLAUDE_SESSION_ID:-}" ]; then
   [ "${ZCODE_HOOK_FORCE:-}" = 1 ] || exit 0
@@ -58,10 +58,18 @@ if [ -n "$sheet" ] && tr -d '\r' <"$sheet" 2>/dev/null | grep -qx 'session hook:
   exit 0
 fi
 
+# With pstack disabled no pstack: skill resolves, so the mandate would claim
+# something false. Emit the notice instead.
+config="${ZCODE_CONFIG_DIR:-$HOME/.zcode}/cli/config.json"
+if [ -f "$config" ] && grep -Eq '"pstack@pstack-claude"[[:space:]]*:[[:space:]]*false' "$config" 2>/dev/null; then
+  notice="$ZCODE_PLUGIN_ROOT/hooks/pstack-disabled.md"
+  [ -f "$notice" ] && mandate=$notice
+fi
+
 # Emit the mandate plus any usable role lines. The payload uses ZCode's complete
 # hookSpecificOutput shape; a top-level additionalContext is also accepted, but
 # naming the event leaves no room for the runtime to guess which event it is for.
-output=$(ACCESS_MANDATE="$mandate" ACCESS_SHEET="$sheet" awk '
+output=$(ACCESS_MANDATE="$mandate" ACCESS_SHEET="$sheet" ACCESS_ROOT="$ZCODE_PLUGIN_ROOT" awk '
 function esc(s,    out, i, c) {
   if (!esc_ready) {
     for (i = 1; i < 32; i++) esc_ctl[sprintf("%c", i)] = 1
@@ -116,7 +124,7 @@ BEGIN {
 
   text = body
   if (roles != "") {
-    text = text "\n\nSaved pstack role choices. Each value is an alias from pstack-zcode references/model-map.json; resolve it with scripts/resolve-model.mjs before dispatching:\n" roles
+    text = text "\n\nSaved pstack role choices. ZCode takes the model of a subagent from its agent record at ~/.zcode/v2/agents-state.json when it holds an entry for that agent, and never from the call. For a role the map gives agents to, this command names them:\n" ENVIRON["ACCESS_ROOT"] "/scripts/resolve-model.mjs --role <role>\n" roles
   }
   printf "{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"%s\"}}\n", esc(text)
 }

@@ -1,0 +1,1 @@
+pstack-zcode adapts the `pstack@pstack-claude` plugin and does not replace it. That plugin is disabled in the ZCode config under `plugins.enabledPlugins`, so no `pstack:` skill or agent resolves here and the poteto-mode mandate does not apply. Enable `pstack@pstack-claude`, or uninstall pstack-zcode.

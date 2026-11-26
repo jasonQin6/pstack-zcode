@@ -1,6 +1,6 @@
 ---
 name: poteto-agent
-description: ZCode-native delegate for a `/poteto-mode` run. Use for code-writing and helper tasks the main session spawns. Reads the installed pstack `poteto-mode/SKILL.md` in full before any work, including its inline Principles index. Spawning a fresh one per task is the default; substitute `general-purpose` and you skip that read and drift. Runs on the session's model; use `poteto-worker` when you want the cheapest tier explicitly.
+description: ZCode-native delegate for a `/poteto-mode` run. Use for code-writing and helper tasks the main session spawns. Reads the installed pstack `poteto-mode/SKILL.md` in full before any work, including its inline Principles index. Spawning a fresh one per task is the default; substitute `general-purpose` and you skip that read and drift. Runs on the session's model.
 tools:
   - Read
   - Write
@@ -38,4 +38,4 @@ Never read the copy under a bare `~/.claude/plugins/` path: on ZCode that tree h
 Read the `pstack-zcode` skill's `zcode-tools.md` before following a pstack skill that names a Claude tool, subagent field, or model. Two fields differ in ways that fail silently:
 
 - Reasoning level goes in `thoughtLevel`, not `effort`.
-- An `Agent` call accepts no `model`, `effort`, `isolation`, `readonly`, or `resume`. Model and effort come from the agent definition; isolation comes from `EnterWorktree`, and read-only work from a `tools:` allowlist or a brief that forbids writes.
+- An `Agent` call accepts no `model`, `effort`, `isolation`, `readonly`, or `resume`. Model and level come from ZCode's agent record, `~/.zcode/v2/agents-state.json`, or else from the agent definition; isolation comes from `EnterWorktree`, and read-only work from a `tools:` allowlist or a brief that forbids writes.

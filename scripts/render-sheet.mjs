@@ -19,41 +19,16 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
+import { loadMap, snap } from "./tiers.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const MAP = join(ROOT, "skills/pstack-zcode/references/model-map.json");
 const SHEET = join(process.env.ZCODE_CONFIG_DIR ?? join(homedir(), ".zcode"), "pstack-models.md");
 
-const map = JSON.parse(readFileSync(MAP, "utf8"));
+const map = loadMap(ROOT);
 
 // pstack's own ladder, weakest to strongest. A requested level is ranked here,
 // then matched to the closest level the concrete model advertises.
 const LADDER = map.effort.pstackLevels;
-
-/**
- * Snap a requested pstack level onto the levels a model accepts.
- * Ties resolve upward, because a task that asked for more thinking should not
- * silently get less.
- */
-function snap(level, accepted) {
-  if (accepted.includes(level)) return level;
-  const want = LADDER.indexOf(level);
-  if (want < 0) throw new Error(`unknown pstack level "${level}"`);
-  let best = null;
-  let bestDistance = Infinity;
-  for (const candidate of accepted) {
-    const at = LADDER.indexOf(candidate);
-    if (at < 0) continue;
-    const distance = Math.abs(at - want);
-    // Prefer the closer level; on a tie prefer the higher one.
-    if (distance < bestDistance || (distance === bestDistance && at > (LADDER.indexOf(best) ?? -1))) {
-      best = candidate;
-      bestDistance = distance;
-    }
-  }
-  if (best === null) throw new Error(`no level of ${accepted.join("/")} is on pstack's ladder`);
-  return best;
-}
 
 function alias(name) {
   const spec = map.aliases[name];
@@ -67,7 +42,9 @@ function seat(name, requestedLevel) {
   if (!spec.reasoning || !requestedLevel) return name;
   const accepted = spec.levels ?? [];
   if (accepted.length === 0) return name;
-  return `${name} @${snap(requestedLevel, accepted)}`;
+  const level = snap(requestedLevel, accepted, LADDER);
+  if (level === null) throw new Error(`level ${requestedLevel} maps onto none of ${accepted.join("/")} for ${name}`);
+  return `${name} @${level}`;
 }
 
 function resolveRole(role) {

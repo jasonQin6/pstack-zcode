@@ -8,13 +8,14 @@
 // Usage:
 //   node scripts/resolve-model.mjs glm-5.4      -> account:.../GLM-5.4
 //   node scripts/resolve-model.mjs --role hillclimb
+//        -> alias<TAB>ID @level<TAB>agents to dispatch on, when the map names any
 //   node scripts/resolve-model.mjs --list
-import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadMap, pluginId, snap, roleAgentSelections, tierSelections } from "./tiers.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const map = JSON.parse(readFileSync(join(ROOT, "skills/pstack-zcode/references/model-map.json"), "utf8"));
+const map = loadMap(ROOT);
 
 const args = process.argv.slice(2);
 
@@ -36,27 +37,7 @@ if (args.includes("--list")) {
   process.exit(0);
 }
 
-// pstack's ladder, weakest to strongest. Mirrors render-sheet.mjs so the sheet
-// and this resolver never disagree about which level a seat ends up at.
 const LADDER = map.effort.pstackLevels;
-
-function snap(level, accepted) {
-  if (accepted.includes(level)) return level;
-  const want = LADDER.indexOf(level);
-  if (want < 0) return null;
-  let best = null;
-  let bestDistance = Infinity;
-  for (const candidate of accepted) {
-    const at = LADDER.indexOf(candidate);
-    if (at < 0) continue;
-    const distance = Math.abs(at - want);
-    if (distance < bestDistance || (distance === bestDistance && at > (LADDER.indexOf(best) ?? -1))) {
-      best = candidate;
-      bestDistance = distance;
-    }
-  }
-  return best;
-}
 
 if (args[0] === "--role") {
   const role = args[1];
@@ -64,17 +45,47 @@ if (args[0] === "--role") {
   const tierName = map.roles[role];
   if (!tierName) die(`unknown role: ${role}\nknown roles:\n  ${Object.keys(map.roles).join("\n  ")}`);
   const tier = map.tiers[tierName];
-  for (const alias of tier.models ?? [tier.model]) {
-    const spec = map.aliases[alias];
-    if (!spec) die(`alias "${alias}" missing from aliases`);
-    // A model without reasoning levels is dispatched with no level at all.
-    let note = "";
-    if (spec.reasoning && tier.thoughtLevel) {
-      const level = snap(tier.thoughtLevel, spec.levels ?? []);
-      if (level) note = ` @${level}`;
+
+  if (map.roleAgents?.[role]) {
+    let named;
+    try {
+      named = roleAgentSelections(map).filter((entry) => entry.role === role);
+    } catch (error) {
+      die(error.message);
     }
-    console.log(`${alias}\t${spec.id}${note}`);
+    if (named.length > 0) {
+      const first = named[0];
+      const note = first.level === null ? "" : ` @${first.level}`;
+      console.log(`${first.alias}\t${first.id}${note}\t${named.map((entry) => entry.agentType).join(", ")}`);
+      process.exit(0);
+    }
   }
+
+  if (tier.models) {
+    for (const alias of tier.models) {
+      const spec = map.aliases[alias];
+      if (!spec) die(`alias "${alias}" missing from aliases`);
+      let note = "";
+      if (spec.reasoning && tier.thoughtLevel) {
+        const level = snap(tier.thoughtLevel, spec.levels ?? [], LADDER);
+        if (level) note = ` @${level}`;
+      }
+      console.log(`${alias}\t${spec.id}${note}`);
+    }
+    process.exit(0);
+  }
+
+  let selection;
+  try {
+    selection = tierSelections(map, pluginId(ROOT)).find((entry) => entry.tier === tierName);
+  } catch (error) {
+    die(error.message);
+  }
+  if (!selection) die(`tier ${tierName} names no model to resolve`);
+  const note = selection.level === null ? "" : ` @${selection.level}`;
+  // A role whose tier has a delegate names it too, because ZCode takes the model
+  // from its agent record and not from the dispatch.
+  console.log(`${selection.alias}\t${selection.id}${note}\tpstack-zcode:${selection.agent}`);
   process.exit(0);
 }
 
